@@ -1,0 +1,470 @@
+diff --git a/LINUX/android/development/samples/SoftKeyboard/res/layout/input.xml b/LINUX/android/development/samples/SoftKeyboard/res/layout/input.xml
+index d78a9f2..87d14e8 100755
+--- a/LINUX/android/development/samples/SoftKeyboard/res/layout/input.xml
++++ b/LINUX/android/development/samples/SoftKeyboard/res/layout/input.xml
+@@ -24,4 +24,6 @@
+         android:layout_alignParentBottom="true"
+         android:layout_width="match_parent"
+         android:layout_height="wrap_content"
++        android:focusable="true"
++        android:keyBackground="@drawable/keyboard_focus"
+         />
+diff --git a/LINUX/android/development/samples/SoftKeyboard/res/values/colors.xml b/LINUX/android/development/samples/SoftKeyboard/res/values/colors.xml
+index 74d103a..2b257d2 100644
+--- a/LINUX/android/development/samples/SoftKeyboard/res/values/colors.xml
++++ b/LINUX/android/development/samples/SoftKeyboard/res/values/colors.xml
+@@ -22,4 +22,6 @@
+     <color name="candidate_recommended">#FFE35900</color>
+     <color name="candidate_other">#ff808080</color>
+     <color name="candidate_background">#bbffffff</color>
++    <color name="comm_item_focus">#ff9a00</color>
++    <color name="comm_item_pressed">#ff9a00</color>
+ </resources>
+\ No newline at end of file
+diff --git a/LINUX/android/development/samples/SoftKeyboard/res/values/dimens.xml b/LINUX/android/development/samples/SoftKeyboard/res/values/dimens.xml
+index caf615c..a913fca 100644
+--- a/LINUX/android/development/samples/SoftKeyboard/res/values/dimens.xml
++++ b/LINUX/android/development/samples/SoftKeyboard/res/values/dimens.xml
+@@ -19,7 +19,7 @@
+ -->
+ 
+ <resources>
+-    <dimen name="key_height">50dip</dimen>
++    <dimen name="key_height">15dip</dimen>
+     <dimen name="candidate_font_height">16sp</dimen>
+     <dimen name="candidate_vertical_padding">6sp</dimen>
+ </resources>
+\ No newline at end of file
+diff --git a/LINUX/android/development/samples/SoftKeyboard/src/com/example/android/softkeyboard/SoftKeyboard.java b/LINUX/android/development/samples/SoftKeyboard/src/com/example/android/softkeyboard/SoftKeyboard.java
+index cdebde5..2e87d27 100644
+--- a/LINUX/android/development/samples/SoftKeyboard/src/com/example/android/softkeyboard/SoftKeyboard.java
++++ b/LINUX/android/development/samples/SoftKeyboard/src/com/example/android/softkeyboard/SoftKeyboard.java
+@@ -19,10 +19,12 @@ package com.example.android.softkeyboard;
+ import android.app.Dialog;
+ import android.inputmethodservice.InputMethodService;
+ import android.inputmethodservice.Keyboard;
++import android.inputmethodservice.Keyboard.Key;
+ import android.inputmethodservice.KeyboardView;
+ import android.os.IBinder;
+ import android.text.InputType;
+ import android.text.method.MetaKeyKeyListener;
++import android.util.Log;
+ import android.view.KeyCharacterMap;
+ import android.view.KeyEvent;
+ import android.view.View;
+@@ -78,6 +80,10 @@ public class SoftKeyboard extends InputMethodService
+     private LatinKeyboard mCurKeyboard;
+     
+     private String mWordSeparators;
++
++    private static final String TAG = "SoftKeyboard";
++    private int mCurrentKeyIndex = 10;
++    private static boolean isInputViewShowing = false;
+     
+     /**
+      * Main initialization of the input method component.  Be sure to call
+@@ -133,9 +139,12 @@ public class SoftKeyboard extends InputMethodService
+      * be generated, like {@link #onCreateInputView}.
+      */
+     @Override public View onCreateCandidatesView() {
++        
+         mCandidateView = new CandidateView(this);
+         mCandidateView.setService(this);
+         return mCandidateView;
++        
++        //return null;
+     }
+ 
+     /**
+@@ -237,7 +246,7 @@ public class SoftKeyboard extends InputMethodService
+      */
+     @Override public void onFinishInput() {
+         super.onFinishInput();
+-        
++        isInputViewShowing = false;
+         // Clear current composing text and candidates.
+         mComposing.setLength(0);
+         updateCandidates();
+@@ -257,6 +266,7 @@ public class SoftKeyboard extends InputMethodService
+     @Override public void onStartInputView(EditorInfo attribute, boolean restarting) {
+         super.onStartInputView(attribute, restarting);
+         // Apply the selected keyboard to the input view.
++        isInputViewShowing = true;
+         setLatinKeyboard(mCurKeyboard);
+         mInputView.closing();
+         final InputMethodSubtype subtype = mInputMethodManager.getCurrentInputMethodSubtype();
+@@ -356,6 +366,16 @@ public class SoftKeyboard extends InputMethodService
+      * continue to the app.
+      */
+     @Override public boolean onKeyDown(int keyCode, KeyEvent event) {
++        Log.d(TAG, "onKeyDown.. keycode: " + keyCode);
++        if (!isInputViewShowing){
++            /*
++            Log.d(TAG, "onKeyDown: mInputView is null");
++            if (keyCode == KeyEvent.KEYCODE_A || keyCode == KeyEvent.KEYCODE_B){
++                return true;
++            }
++            */
++            return super.onKeyDown(keyCode, event);
++        }
+         switch (keyCode) {
+             case KeyEvent.KEYCODE_BACK:
+                 // The InputMethodService already takes care of the back
+@@ -367,6 +387,9 @@ public class SoftKeyboard extends InputMethodService
+                         return true;
+                     }
+                 }
++                //因为不要响应物理按键，所以没有调用父类的onkeydown,需要自己处理back键
++                //handleClose();
++                onFinishInput();
+                 break;
+                 
+             case KeyEvent.KEYCODE_DEL:
+@@ -380,13 +403,58 @@ public class SoftKeyboard extends InputMethodService
+                 break;
+                 
+             case KeyEvent.KEYCODE_ENTER:
+-                // Let the underlying text editor always handle these.
+-                return false;
++            case KeyEvent.KEYCODE_DPAD_CENTER:
++                int[] tmp = ((Key)mCurKeyboard.getKeys().get(mCurrentKeyIndex)).codes;
++                if (tmp[0] == Keyboard.KEYCODE_DELETE) {
++                    onKey(Keyboard.KEYCODE_DELETE, null);
++                    return true;
++                }
++
++                // 处理enter键选中特殊键的地方
++                if (tmp[0] == Keyboard.KEYCODE_DELETE || 
++                    tmp[0] == Keyboard.KEYCODE_SHIFT ||
++                    tmp[0] == Keyboard.KEYCODE_CANCEL ||
++                    tmp[0] == LatinKeyboardView.KEYCODE_LANGUAGE_SWITCH ||
++                    tmp[0] == LatinKeyboardView.KEYCODE_OPTIONS ||
++                    tmp[0] == Keyboard.KEYCODE_MODE_CHANGE ) {
++                    onKey(tmp[0], null);
++                    return true;
++                }
++
++                handleCharacter(tmp[0], null);
++                return true;
++            case KeyEvent.KEYCODE_DPAD_DOWN:
++            case KeyEvent.KEYCODE_DPAD_UP:
++            case KeyEvent.KEYCODE_DPAD_LEFT:
++            case KeyEvent.KEYCODE_DPAD_RIGHT:
++                int keysSize = mCurKeyboard.getKeys().size();
++                Log.d(TAG, "onKeyDown: keyssize: " + keysSize);
++                if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN || keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) {
++                    if (++mCurrentKeyIndex > keysSize - 1) {
++                        mCurrentKeyIndex = 0;
++                    }
++                }else{
++                    if (--mCurrentKeyIndex < 0) {
++                        mCurrentKeyIndex = keysSize - 1;
++                    }
++                }
++                int[] tmpp = ((Key)mCurKeyboard.getKeys().get(mCurrentKeyIndex)).codes;
++                for (int i = 0; i < tmpp.length; i++) {
++                    Log.d(TAG, "onKeyDown: tmpp: " + tmpp[0]);
++                }
++                //Log.d(TAG, "onKeyDown mCurrentKeyIndex: " + mCurrentKeyIndex + "  key: " + ((Key)mCurKeyboard.getKeys().get(mCurrentKeyIndex)).codes);
++                if (tmpp[0] == LatinKeyboardView.KEYCODE_LANGUAGE_SWITCH) {
++                    return true;
++                }
++                mInputView.showPreview(mCurrentKeyIndex);
++
++                return true;
+                 
+             default:
+                 // For all other keys, if we want to do transformations on
+                 // text being entered with a hard keyboard, we need to process
+                 // it and do the appropriate action.
++                /*
+                 if (PROCESS_HARD_KEYS) {
+                     if (keyCode == KeyEvent.KEYCODE_SPACE
+                             && (event.getMetaState()&KeyEvent.META_ALT_ON) != 0) {
+@@ -412,9 +480,12 @@ public class SoftKeyboard extends InputMethodService
+                         return true;
+                     }
+                 }
++                */
+         }
+-        
+-        return super.onKeyDown(keyCode, event);
++
++
++        return true;
++        //return super.onKeyDown(keyCode, event);
+     }
+ 
+     /**
+@@ -529,8 +600,10 @@ public class SoftKeyboard extends InputMethodService
+             Keyboard current = mInputView.getKeyboard();
+             if (current == mSymbolsKeyboard || current == mSymbolsShiftedKeyboard) {
+                 setLatinKeyboard(mQwertyKeyboard);
++                mCurKeyboard = mQwertyKeyboard;
+             } else {
+                 setLatinKeyboard(mSymbolsKeyboard);
++                mCurKeyboard = mSymbolsKeyboard;
+                 mSymbolsKeyboard.setShifted(false);
+             }
+         } else {
+@@ -556,6 +629,7 @@ public class SoftKeyboard extends InputMethodService
+      * candidates.
+      */
+     private void updateCandidates() {
++        
+         if (!mCompletionOn) {
+             if (mComposing.length() > 0) {
+                 ArrayList<String> list = new ArrayList<String>();
+@@ -565,6 +639,7 @@ public class SoftKeyboard extends InputMethodService
+                 setSuggestions(null, false, false);
+             }
+         }
++        
+     }
+     
+     public void setSuggestions(List<String> suggestions, boolean completions,
+@@ -608,10 +683,12 @@ public class SoftKeyboard extends InputMethodService
+         } else if (currentKeyboard == mSymbolsKeyboard) {
+             mSymbolsKeyboard.setShifted(true);
+             setLatinKeyboard(mSymbolsShiftedKeyboard);
++            mCurKeyboard = mSymbolsShiftedKeyboard;
+             mSymbolsShiftedKeyboard.setShifted(true);
+         } else if (currentKeyboard == mSymbolsShiftedKeyboard) {
+             mSymbolsShiftedKeyboard.setShifted(false);
+             setLatinKeyboard(mSymbolsKeyboard);
++            mCurKeyboard = mSymbolsKeyboard;
+             mSymbolsKeyboard.setShifted(false);
+         }
+     }
+@@ -622,6 +699,7 @@ public class SoftKeyboard extends InputMethodService
+                 primaryCode = Character.toUpperCase(primaryCode);
+             }
+         }
++        // 如果注释这部分，可以直接输入到edittext中，不用再经过预览
+         if (isAlphabet(primaryCode) && mPredictionOn) {
+             mComposing.append((char) primaryCode);
+             getCurrentInputConnection().setComposingText(mComposing, 1);
+@@ -631,6 +709,13 @@ public class SoftKeyboard extends InputMethodService
+             getCurrentInputConnection().commitText(
+                     String.valueOf((char) primaryCode), 1);
+         }
++        
++
++        /* 如果注释上面一段就打开下面这一部分， 反之亦然
++        getCurrentInputConnection().commitText(
++                    String.valueOf((char) primaryCode), 1);
++        */
++
+     }
+ 
+     private void handleClose() {
+diff --git a/LINUX/android/frameworks/base/api/current.txt b/LINUX/android/frameworks/base/api/current.txt
+index d7fdb2d..55ebae3 100644
+--- a/LINUX/android/frameworks/base/api/current.txt
++++ b/LINUX/android/frameworks/base/api/current.txt
+@@ -14387,6 +14387,7 @@ package android.inputmethodservice {
+     method public void setProximityCorrectionEnabled(boolean);
+     method public boolean setShifted(boolean);
+     method public void setVerticalCorrection(int);
++    method public void showPreview(int);
+     method protected void swipeDown();
+     method protected void swipeLeft();
+     method protected void swipeRight();
+diff --git a/LINUX/android/frameworks/base/api/system-current.txt b/LINUX/android/frameworks/base/api/system-current.txt
+index 3c88e59..94701a4 100644
+--- a/LINUX/android/frameworks/base/api/system-current.txt
++++ b/LINUX/android/frameworks/base/api/system-current.txt
+@@ -15335,6 +15335,7 @@ package android.inputmethodservice {
+     method public void setProximityCorrectionEnabled(boolean);
+     method public boolean setShifted(boolean);
+     method public void setVerticalCorrection(int);
++    method public void showPreview(int);
+     method protected void swipeDown();
+     method protected void swipeLeft();
+     method protected void swipeRight();
+diff --git a/LINUX/android/frameworks/base/core/java/android/inputmethodservice/KeyboardView.java b/LINUX/android/frameworks/base/core/java/android/inputmethodservice/KeyboardView.java
+index b777e8c..29a1350 100644
+--- a/LINUX/android/frameworks/base/core/java/android/inputmethodservice/KeyboardView.java
++++ b/LINUX/android/frameworks/base/core/java/android/inputmethodservice/KeyboardView.java
+@@ -46,6 +46,7 @@ import android.view.accessibility.AccessibilityEvent;
+ import android.view.accessibility.AccessibilityManager;
+ import android.widget.PopupWindow;
+ import android.widget.TextView;
++import android.graphics.Color;
+ 
+ import com.android.internal.R;
+ 
+@@ -847,7 +848,7 @@ public class KeyboardView extends View implements View.OnClickListener {
+         }
+     }
+     
+-    private void showPreview(int keyIndex) {
++    public void showPreview(int keyIndex) {
+         int oldKeyIndex = mCurrentKeyIndex;
+         final PopupWindow previewPopup = mPreviewPopup;
+         
+@@ -883,9 +884,11 @@ public class KeyboardView extends View implements View.OnClickListener {
+             mHandler.removeMessages(MSG_SHOW_PREVIEW);
+             if (previewPopup.isShowing()) {
+                 if (keyIndex == NOT_A_KEY) {
++                    /*
+                     mHandler.sendMessageDelayed(mHandler
+                             .obtainMessage(MSG_REMOVE_PREVIEW), 
+                             DELAY_AFTER_PREVIEW);
++                    */
+                 }
+             }
+             if (keyIndex != NOT_A_KEY) {
+@@ -972,6 +975,7 @@ public class KeyboardView extends View implements View.OnClickListener {
+             previewPopup.showAtLocation(mPopupParent, Gravity.NO_GRAVITY, 
+                     mPopupPreviewX, mPopupPreviewY);
+         }
++        mPreviewText.setTextColor(Color.rgb(230, 92, 0));
+         mPreviewText.setVisibility(VISIBLE);
+     }
+ 
+diff --git a/LINUX/android/frameworks/base/core/res/res/layout/alert_dialog_button_bar_material.xml b/LINUX/android/frameworks/base/core/res/res/layout/alert_dialog_button_bar_material.xml
+index 6e52a60..6e102f3 100644
+--- a/LINUX/android/frameworks/base/core/res/res/layout/alert_dialog_button_bar_material.xml
++++ b/LINUX/android/frameworks/base/core/res/res/layout/alert_dialog_button_bar_material.xml
+@@ -24,8 +24,8 @@
+     android:orientation="horizontal"
+     android:paddingStart="12dp"
+     android:paddingEnd="12dp"
+-    android:paddingTop="1dp"
+-    android:paddingBottom="1dp"
++    android:paddingTop="4dp"
++    android:paddingBottom="4dp"
+     android:gravity="bottom"
+     android:allowStacking="@bool/allow_stacked_button_bar"
+     style="?attr/buttonBarStyle">
+diff --git a/LINUX/android/frameworks/base/core/res/res/layout/alert_dialog_material.xml b/LINUX/android/frameworks/base/core/res/res/layout/alert_dialog_material.xml
+index 0ad490c..95c2459 100644
+--- a/LINUX/android/frameworks/base/core/res/res/layout/alert_dialog_material.xml
++++ b/LINUX/android/frameworks/base/core/res/res/layout/alert_dialog_material.xml
+@@ -34,7 +34,7 @@
+         <ScrollView
+             android:id="@+id/scrollView"
+             android:layout_width="match_parent"
+-            android:layout_height="match_parent"
++            android:layout_height="wrap_content"
+             android:paddingTop="@dimen/dialog_padding_top_material"
+             android:clipToPadding="false">
+ 
+@@ -65,14 +65,12 @@
+         android:layout_width="match_parent"
+         android:layout_height="wrap_content"
+         android:layout_weight="1"
+-        android:minHeight="0dp"
+-        android:visibility="gone">
++        android:minHeight="48dp">
+ 
+         <FrameLayout
+             android:id="@+id/custom"
+             android:layout_width="match_parent"
+-            android:layout_height="wrap_content" 
+-            android:visibility="gone"/>
++            android:layout_height="wrap_content" />
+     </FrameLayout>
+ 
+     <include layout="@layout/alert_dialog_button_bar_material" />
+diff --git a/LINUX/android/frameworks/base/core/res/res/layout/alert_dialog_title_material.xml b/LINUX/android/frameworks/base/core/res/res/layout/alert_dialog_title_material.xml
+index e90929e..f61b90b 100644
+--- a/LINUX/android/frameworks/base/core/res/res/layout/alert_dialog_title_material.xml
++++ b/LINUX/android/frameworks/base/core/res/res/layout/alert_dialog_title_material.xml
+@@ -33,8 +33,8 @@
+ 
+         <ImageView
+             android:id="@+id/icon"
+-            android:layout_width="16dip"
+-            android:layout_height="16dip"
++            android:layout_width="32dip"
++            android:layout_height="32dip"
+             android:layout_marginEnd="8dip"
+             android:scaleType="fitCenter"
+             android:src="@null" />
+diff --git a/LINUX/android/frameworks/base/core/res/res/layout/select_dialog_singlechoice_material.xml b/LINUX/android/frameworks/base/core/res/res/layout/select_dialog_singlechoice_material.xml
+index 5a1614e..995272a 100644
+--- a/LINUX/android/frameworks/base/core/res/res/layout/select_dialog_singlechoice_material.xml
++++ b/LINUX/android/frameworks/base/core/res/res/layout/select_dialog_singlechoice_material.xml
+@@ -20,11 +20,11 @@
+     android:layout_width="match_parent"
+     android:layout_height="wrap_content"
+     android:minHeight="?attr/listPreferredItemHeightSmall"
+-    android:textAppearance="?attr/textAppearanceSmall"
++    android:textAppearance="?attr/textAppearanceMedium"
+     android:textColor="?attr/textColorAlertDialogListItem"
+     android:gravity="center_vertical"
+     android:paddingStart="@dimen/select_dialog_padding_start_material"
+     android:paddingEnd="?attr/dialogPreferredPadding"
+     android:drawableStart="?attr/listChoiceIndicatorSingle"
+-    android:drawablePadding="10dp"
++    android:drawablePadding="20dp"
+     android:ellipsize="marquee" />
+diff --git a/LINUX/android/frameworks/base/services/core/java/com/android/server/InputMethodManagerService.java b/LINUX/android/frameworks/base/services/core/java/com/android/server/InputMethodManagerService.java
+index 6634e6b..9bc1476 100644
+--- a/LINUX/android/frameworks/base/services/core/java/com/android/server/InputMethodManagerService.java
++++ b/LINUX/android/frameworks/base/services/core/java/com/android/server/InputMethodManagerService.java
+@@ -2135,7 +2135,61 @@ public class InputMethodManagerService extends IInputMethodManager.Stub
+     }
+ 
+     boolean showCurrentInputLocked(int flags, ResultReceiver resultReceiver) {
+-        return false;
++        mShowRequested = true;
++        if ((flags&InputMethodManager.SHOW_IMPLICIT) == 0) {
++            mShowExplicitlyRequested = true;
++        }
++        if ((flags&InputMethodManager.SHOW_FORCED) != 0) {
++            mShowExplicitlyRequested = true;
++            mShowForced = true;
++        }
++
++        if (!mSystemReady) {
++            return false;
++        }
++
++        boolean res = false;
++        if (mCurMethod != null) {
++            if (DEBUG) Slog.d(TAG, "showCurrentInputLocked: mCurToken=" + mCurToken);
++            executeOrSendMessage(mCurMethod, mCaller.obtainMessageIOO(
++                    MSG_SHOW_SOFT_INPUT, getImeShowFlags(), mCurMethod,
++                    resultReceiver));
++            mInputShown = true;
++            if (mHaveConnection && !mVisibleBound) {
++                bindCurrentInputMethodService(
++                        mCurIntent, mVisibleConnection, Context.BIND_AUTO_CREATE
++                                | Context.BIND_TREAT_LIKE_ACTIVITY
++                                | Context.BIND_FOREGROUND_SERVICE);
++                mVisibleBound = true;
++            }
++            /* Acquire perflock if - display is on, soft input is shown
++             * and perflock not yet acquired */
++            if (mIsInteractive && kb.getKeyboardState() == kb.INACTIVE) {
++               kb.keyboardPerflockAcquire();
++               kb.setKeyboardState(kb.FOREGROUND);
++               if (DEBUG) Slog.i(TAG, "Keyboard in foreground");
++            }
++            res = true;
++        } else if (mHaveConnection && SystemClock.uptimeMillis()
++                >= (mLastBindTime+TIME_TO_RECONNECT)) {
++            // The client has asked to have the input method shown, but
++            // we have been sitting here too long with a connection to the
++            // service and no interface received, so let's disconnect/connect
++            // to try to prod things along.
++            EventLog.writeEvent(EventLogTags.IMF_FORCE_RECONNECT_IME, mCurMethodId,
++                    SystemClock.uptimeMillis()-mLastBindTime,1);
++            Slog.w(TAG, "Force disconnect/connect to the IME in showCurrentInputLocked()");
++            mContext.unbindService(this);
++            bindCurrentInputMethodService(mCurIntent, this, Context.BIND_AUTO_CREATE
++                    | Context.BIND_NOT_VISIBLE);
++        } else {
++            if (DEBUG) {
++                Slog.d(TAG, "Can't show input: connection = " + mHaveConnection + ", time = "
++                        + ((mLastBindTime+TIME_TO_RECONNECT) - SystemClock.uptimeMillis()));
++            }
++        }
++
++        return res;
+     }
+ 
+     @Override
